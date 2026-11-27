@@ -230,6 +230,19 @@
     .receive-footer { padding:14px 18px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-shrink:0; gap:12px; }
     .receive-footer span { font-size:.88rem; color:var(--muted); font-weight:600; }
 
+    /* ── Employee removal reports ── */
+    .rr-row { display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .rr-row:last-child { border-bottom:none; }
+    .rr-info { flex:1; min-width:180px; }
+    .rr-name { font-weight:800; font-size:.95rem; }
+    .rr-meta { font-size:.78rem; color:var(--muted); margin-top:2px; }
+    .rr-warn { font-size:.75rem; color:var(--yellow); font-weight:700; margin-top:3px; }
+    .rr-qty { font-weight:900; font-size:1.15rem; color:var(--red); direction:ltr; unicode-bidi:isolate; min-width:44px; text-align:center; cursor:pointer; border-bottom:1px dashed var(--red); }
+    .rr-btns { display:flex; gap:6px; }
+    .rr-st { font-size:.72rem; font-weight:800; border-radius:20px; padding:2px 8px; }
+    .rr-st.approved { background:var(--green-bg); color:var(--green); }
+    .rr-st.rejected { background:var(--red-bg); color:var(--red); }
+
     /* ── Scan mode ─────────────────────────────── */
     .scan-mode-toggle { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px; }
     .mode-btn.find.active   { background:var(--p); border-color:var(--p); color:#fff; box-shadow:0 4px 14px rgba(124,58,237,.35); }
@@ -396,6 +409,7 @@
   <button id="nav-search"    class="nav-btn"        onclick="showView('search')">📦 מלאי</button>
   <button id="nav-fridges"   class="nav-btn"        onclick="showView('fridges')">❄️ מקררים</button>
   <button id="nav-orders"    class="nav-btn"        onclick="showView('orders')">📋 הזמנות</button>
+  <button id="nav-reports"   class="nav-btn"        onclick="showView('reports')">📥 דיווחים<span class="nav-badge" id="reportsBadge" hidden>0</span></button>
   <button id="nav-dashboard" class="nav-btn"        onclick="showView('dashboard')">📊 דשבורד</button>
 </nav>
 
@@ -466,6 +480,18 @@
       </div>
     </div>
     <div id="ordersList"></div>
+  </section>
+
+  <section id="view-reports" hidden>
+    <div class="view-header">
+      <h2>📥 דיווחי הוצאה מעובדים</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-success" onclick="approveAllReports()">✅ אשר הכל</button>
+        <a class="btn btn-outline" href="employee.html" target="_blank">📱 עמוד העובדים</a>
+      </div>
+    </div>
+    <p class="field-hint" style="margin-bottom:12px">עובדים מדווחים מה הוציאו. <b>המלאי לא משתנה עד שאתה מאשר.</b> לחץ על הכמות כדי לשנות אותה לפני אישור.</p>
+    <div id="reportsList"></div>
   </section>
 
   <section id="view-dashboard" hidden>
@@ -679,7 +705,7 @@ const FIRESTORE_DATABASE_ID = "d1356";
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
 import {
   getFirestore, collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, orderBy, writeBatch
+  query, orderBy, writeBatch, onSnapshot, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
 
 const VENDORS = ['שטראוס','פלדמן','נסטלה','רוסיות','עצמאי','צעצועים','ממתקים','שונות'];
@@ -753,6 +779,7 @@ async function initApp() {
     const app = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
     db = getFirestore(app, FIRESTORE_DATABASE_ID);
     await loadAllProducts();
+    listenReports();
     saveToCache();
     updateStats();
     buildSearchFilterBar();
@@ -803,7 +830,7 @@ function updateStats() {
 }
 
 function showView(name) {
-  ['search','scan','fridges','orders','dashboard'].forEach(v => {
+  ['search','scan','fridges','orders','reports','dashboard'].forEach(v => {
     document.getElementById('view-'+ v).hidden    = (v !== name);
     document.getElementById('nav-'  + v).classList.toggle('active', v === name);
   });
@@ -811,6 +838,7 @@ function showView(name) {
   if (name === 'scan')      { renderScanView(); focusScan(); }
   if (name === 'fridges')   renderFridges();
   if (name === 'orders')    renderOrders();
+  if (name === 'reports')   renderReports();
   if (name === 'dashboard') renderDashboard();
 }
 
@@ -2670,6 +2698,115 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ═══════════════════════════════════════════════
+//  📥  EMPLOYEE REMOVAL REPORTS (from employee.html)
+//  Employees only write to `removalReports`. Stock changes only when approved here.
+// ═══════════════════════════════════════════════
+const REPORTS = 'removalReports';
+let pendingReports = [];
+let decidedReports = [];   // decided in this session, shown below the pending list
+let reportBusy = new Set();
+let reportsLoaded = false;
+function repMs(r) { return r.createdAt?.toMillis ? r.createdAt.toMillis() : (r.clientTs || Date.now()); }
+function listenReports() {
+  if (!db) return;
+  onSnapshot(query(collection(db, REPORTS), where('status', '==', 'pending')), snap => {
+    const isNew = reportsLoaded && snap.docChanges().some(c => c.type === 'added');
+    reportsLoaded = true;
+    pendingReports = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => repMs(a) - repMs(b));
+    const b = document.getElementById('reportsBadge');
+    b.textContent = pendingReports.length; b.hidden = !pendingReports.length;
+    if (isNew) toast('📥 דיווח הוצאה חדש מעובד');
+    if (currentView === 'reports') renderReports();
+  }, e => { console.error(e); toast('⚠️ שגיאה בטעינת דיווחים: ' + (e.message || e), 'error'); });
+}
+function reportRowHtml(r, decided) {
+  const p = products.find(x => x.id === r.pid);
+  const unit = unitLabel(p?.unit || r.unit);
+  const have = p ? (getLocations(p)[r.loc] || 0) : 0;
+  const when = new Date(repMs(r)).toLocaleString('he-IL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  const warn = !p ? '⚠️ המוצר נמחק מהמערכת'
+             : have < r.qty ? `⚠️ במערכת יש רק ${fmtQ(have)} ב${esc(locLabel(r.loc,''))}${have ? ' — יוריד עד 0' : ''}` : '';
+  return `<div class="rr-row">
+    <div class="rr-info">
+      <div class="rr-name">${esc(p?.name || r.productName)}</div>
+      <div class="rr-meta">👤 ${esc(r.employee)} · ❄️ ${esc(locLabel(r.loc,''))} · ${when}${p ? ` · כרגע: ${fmtQ(have)} ${unit}` : ''}</div>
+      ${!decided && warn ? `<div class="rr-warn">${warn}</div>` : ''}
+    </div>
+    ${decided
+      ? `<span class="rr-qty" style="cursor:default;border:none">−${fmtQ(r.appliedQty ?? r.qty)}</span>
+         <span class="rr-st ${r.status}">${r.status === 'approved' ? '✅ אושר' : '❌ נדחה'}</span>`
+      : `<span class="rr-qty" onclick="editReportQty('${r.id}')" title="שנה כמות">−${fmtQ(r.qty)}</span>
+         <div class="rr-btns">
+           <button class="btn btn-sm btn-success" ${reportBusy.has(r.id) || !p ? 'disabled' : ''} onclick="approveReport('${r.id}')">✅ אשר</button>
+           <button class="btn btn-sm btn-danger"  ${reportBusy.has(r.id) ? 'disabled' : ''} onclick="rejectReport('${r.id}')">❌ דחה</button>
+         </div>`}
+  </div>`;
+}
+function renderReports() {
+  const box = document.getElementById('reportsList');
+  if (!box) return;
+  const pend = pendingReports.length
+    ? `<div class="dash-section"><div class="dash-section-title"><span>⏳ ממתינים לאישור (${pendingReports.length})</span></div>
+        ${pendingReports.map(r => reportRowHtml(r, false)).join('')}</div>`
+    : emptyHtml('📥', 'אין דיווחים שממתינים לאישור', 'כשעובד ידווח על הוצאה היא תופיע כאן');
+  const done = decidedReports.length
+    ? `<div class="dash-section"><div class="dash-section-title"><span>🕘 טופלו עכשיו</span></div>
+        ${decidedReports.slice(0, 30).map(r => reportRowHtml(r, true)).join('')}</div>`
+    : '';
+  box.innerHTML = pend + done;
+}
+async function decideReport(id, approve) {
+  const r = pendingReports.find(x => x.id === id);
+  if (!r || reportBusy.has(id)) return false;
+  reportBusy.add(id); renderReports();
+  try {
+    let applied = 0;
+    if (approve) {
+      const p = products.find(x => x.id === r.pid);
+      if (!p) throw new Error('המוצר לא נמצא');
+      applied = -changeLocQty(p, r.loc, -r.qty);
+      if (currentView === 'scan') renderScanResult();
+    }
+    await updateDoc(doc(db, REPORTS, id), {
+      status: approve ? 'approved' : 'rejected',
+      qty: r.qty,
+      ...(approve ? { appliedQty: applied } : {}),
+      decidedAt: serverTimestamp(),
+    });
+    decidedReports.unshift({ ...r, status: approve ? 'approved' : 'rejected', appliedQty: applied });
+    return true;
+  } catch(e) {
+    console.error(e); beep('error');
+    toast('⚠️ שגיאה: ' + (e.message || e), 'error');
+    return false;
+  } finally {
+    reportBusy.delete(id); renderReports();
+  }
+}
+async function approveReport(id) { if (await decideReport(id, true)) toast('✅ אושר והמלאי עודכן', 'success'); }
+async function rejectReport(id)  { if (await decideReport(id, false)) toast('❌ הדיווח נדחה — המלאי לא השתנה'); }
+async function approveAllReports() {
+  const list = pendingReports.filter(r => products.some(p => p.id === r.pid));
+  if (!list.length) { toast('אין דיווחים לאישור'); return; }
+  if (!confirm(`לאשר ${list.length} דיווחים ולעדכן את המלאי?`)) return;
+  let ok = 0;
+  for (const r of list) if (await decideReport(r.id, true)) ok++;
+  toast(`✅ אושרו ${ok} דיווחים`, 'success');
+}
+async function editReportQty(id) {
+  const r = pendingReports.find(x => x.id === id);
+  if (!r) return;
+  const v = prompt('כמות שהוצאה:', r.qty);
+  if (v === null) return;
+  const n = r2(parseFloat(v));
+  if (!(n > 0)) { toast('כמות לא תקינה', 'error'); return; }
+  const orig = r.originalQty ?? r.qty;
+  r.qty = n; renderReports();
+  try { await updateDoc(doc(db, REPORTS, id), { qty: n, originalQty: orig }); }
+  catch(e) { toast('⚠️ שגיאה בשמירה: ' + (e.message || e), 'error'); }
+}
+
 // ── Expose all functions referenced by inline HTML event handlers ──
 // (needed because this is now a module script, which is NOT globally scoped)
 Object.assign(window, {
@@ -2687,7 +2824,7 @@ Object.assign(window, {
   adjustScanEntry, undoScanEntry, clearScanSession, scanRemoveFrom, scanOrder,
   linkToProduct, linkCreateNew, closeLinkModal, linkBackdropClick, renderLinkList,
   addBarcodeFromInput, removeEditBarcode, clearScanInput,
-  hideScanTop,
+  hideScanTop, approveReport, rejectReport, approveAllReports, editReportQty,
   setScanAsk, askPickFridge, askPickAmt, askStateAmt, confirmAsk, askOther, closeAsk, askBackdropClick,
 });
 
