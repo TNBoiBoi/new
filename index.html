@@ -10,6 +10,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="אונו פופס">
   <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%A6%3C/text%3E%3C/svg%3E">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     :root {
       --p: #7c3aed; --p2: #6d28d9; --pink: #db2777; --p-light: #ede9fe;
@@ -243,6 +244,12 @@
     .rr-st.approved { background:var(--green-bg); color:var(--green); }
     .rr-st.rejected { background:var(--red-bg); color:var(--red); }
 
+    /* ── Camera scanning ── */
+    .cam-btn { width:100%; margin-top:10px; justify-content:center; padding:11px; font-size:.95rem; }
+    .cam-wrap { margin-top:10px; border-radius:12px; overflow:hidden; background:#000; position:relative; }
+    .cam-wrap video { display:block; width:100% !important; }
+    .cam-hint { position:absolute; bottom:6px; left:0; right:0; text-align:center; color:#fff; font-size:.75rem; font-weight:700; text-shadow:0 1px 3px #000; pointer-events:none; }
+
     /* ── Scan mode ─────────────────────────────── */
     .scan-mode-toggle { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px; }
     .mode-btn.find.active   { background:var(--p); border-color:var(--p); color:#fff; box-shadow:0 4px 14px rgba(124,58,237,.35); }
@@ -459,6 +466,8 @@
         </div>
         <button class="btn btn-outline" onclick="submitManualScan()">↵</button>
       </div>
+      <button type="button" class="btn btn-outline cam-btn" id="camBtn" onclick="toggleCamera()">📷 סרוק עם המצלמה</button>
+      <div class="cam-wrap" id="camWrap" hidden><div id="camReader"></div><div class="cam-hint">כדי לסרוק שוב את אותו מוצר — הרחק את המצלמה והחזר</div></div>
       <div class="scan-focus-hint" id="scanFocusHint">👆 לחץ כאן כדי להפעיל סריקה</div>
       <div class="scan-last-code" id="scanLastCode"></div>
     </div>
@@ -523,6 +532,8 @@
           <input type="text" id="bcAddInput" placeholder="סרוק או הקלד ברקוד" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="numeric">
           <button type="button" class="btn btn-outline btn-sm" onclick="addBarcodeFromInput()">+ הוסף</button>
         </div>
+        <button type="button" class="btn btn-outline btn-sm cam-btn" id="bcCamBtn" onclick="toggleBcCamera()">📷 סרוק ברקוד עם המצלמה</button>
+        <div class="cam-wrap" id="bcCamWrap" hidden><div id="bcCamReader"></div></div>
         <div class="field-hint">אפשר לשייך כמה ברקודים לאותו מוצר. כשהחלון פתוח — פשוט סרוק את המוצר.</div>
       </div>
 
@@ -835,6 +846,7 @@ function showView(name) {
     document.getElementById('nav-'  + v).classList.toggle('active', v === name);
   });
   currentView = name;
+  if (name !== 'scan') stopCamera();
   if (name === 'scan')      { renderScanView(); focusScan(); }
   if (name === 'fridges')   renderFridges();
   if (name === 'orders')    renderOrders();
@@ -1449,7 +1461,7 @@ function fillModal(p) {
   renderLocList();
   setUnit(p?.unit ?? 'cartons');
 }
-function closeModal()     { document.getElementById('productModal').hidden = true; pendingCreateHook = null; }
+function closeModal()     { if (camActive === 'bc') stopCamera(); document.getElementById('productModal').hidden = true; pendingCreateHook = null; }
 function backdropClick(e) { if (e.target.id === 'productModal') closeModal(); }
 function toggleCustom()   {}
 function openOrderModal() {
@@ -2003,6 +2015,64 @@ function submitManualScan() {
   const v = el.value; el.value = '';
   updateScanClear();
   if (v.trim()) routeScan(v);
+}
+
+// ── Phone / laptop camera scanning ──
+// Two camera spots: the scan page ('scan') and the barcode field inside the product window ('bc').
+// Only one camera can run at a time.
+const CAMS = {
+  scan: { reader:'camReader',   wrap:'camWrap',   btn:'camBtn',   label:'📷 סרוק עם המצלמה',          inst:null },
+  bc:   { reader:'bcCamReader', wrap:'bcCamWrap', btn:'bcCamBtn', label:'📷 סרוק ברקוד עם המצלמה',  inst:null },
+};
+let camActive = '';          // '' | 'scan' | 'bc'
+let camStarting = false;
+let camLastText = '', camLastSeen = 0;
+async function startCamera(which = 'scan') {
+  if (!window.Html5Qrcode) { toast('רכיב המצלמה לא נטען — בדוק חיבור לאינטרנט', 'error'); return; }
+  if (camStarting) return;
+  if (camActive) await stopCamera();
+  const c = CAMS[which];
+  camStarting = true;
+  unlockAudio();
+  camLastText = ''; camLastSeen = 0;
+  document.getElementById(c.wrap).hidden = false;
+  document.getElementById(c.btn).textContent = '✕ סגור מצלמה';
+  try {
+    c.inst = c.inst || new Html5Qrcode(c.reader, { verbose:false });
+    await c.inst.start({ facingMode: 'environment' },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.min(300, w * 0.85), height: Math.min(160, h * 0.5) }) },
+      text => onCameraCode(which, text));
+    camActive = which;
+  } catch(e) {
+    camActive = which; camStarting = false; await stopCamera();
+    toast('אין גישה למצלמה: ' + (e.message || e), 'error');
+  }
+  camStarting = false;
+}
+async function stopCamera() {
+  const which = camActive;
+  camActive = '';
+  Object.values(CAMS).forEach(c => {
+    const w = document.getElementById(c.wrap), b = document.getElementById(c.btn);
+    if (w) w.hidden = true;
+    if (b) b.textContent = c.label;
+  });
+  try { if (which && CAMS[which].inst) await CAMS[which].inst.stop(); } catch(e) {}
+}
+async function toggleCamera()   { camActive === 'scan' ? stopCamera() : startCamera('scan'); }
+async function toggleBcCamera() { camActive === 'bc'   ? stopCamera() : startCamera('bc'); }
+function onCameraCode(which, text) {
+  const now = Date.now();
+  // The barcode stays in view for a while — only count it again once it left the frame.
+  if (text === camLastText && now - camLastSeen < 1200) { camLastSeen = now; return; }
+  camLastText = text; camLastSeen = now;
+  if (navigator.vibrate) navigator.vibrate(40);
+  if (which === 'bc') {
+    // Product window: grab one barcode, close the camera, add it to the list.
+    stopCamera().then(() => addEditBarcode(text));
+    return;
+  }
+  routeScan(text);
 }
 
 // ── Keep the cursor in the scan field so the scanner always has somewhere to type ──
@@ -2824,7 +2894,7 @@ Object.assign(window, {
   adjustScanEntry, undoScanEntry, clearScanSession, scanRemoveFrom, scanOrder,
   linkToProduct, linkCreateNew, closeLinkModal, linkBackdropClick, renderLinkList,
   addBarcodeFromInput, removeEditBarcode, clearScanInput,
-  hideScanTop, approveReport, rejectReport, approveAllReports, editReportQty,
+  hideScanTop, toggleCamera, toggleBcCamera, approveReport, rejectReport, approveAllReports, editReportQty,
   setScanAsk, askPickFridge, askPickAmt, askStateAmt, confirmAsk, askOther, closeAsk, askBackdropClick,
 });
 
