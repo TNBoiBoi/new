@@ -231,8 +231,27 @@
     .receive-footer span { font-size:.88rem; color:var(--muted); font-weight:600; }
 
     /* ── Scan mode ─────────────────────────────── */
-    .scan-mode-toggle { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
-    .mode-btn { padding:14px 8px; border-radius:var(--r); border:2px solid var(--border); background:#fff; font-size:1.15rem; font-weight:800; font-family:inherit; cursor:pointer; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:2px; transition:all .15s; box-shadow:var(--shadow); }
+    .scan-mode-toggle { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px; }
+    .mode-btn.find.active   { background:var(--p); border-color:var(--p); color:#fff; box-shadow:0 4px 14px rgba(124,58,237,.35); }
+    .scan-ready.find { border-color:#c4b5fd; background:var(--p-light); color:#4c1d95; }
+    /* ── "What did I just scan" bar (top of page) ── */
+    .scan-top { position:sticky; top:46px; z-index:80; max-width:880px; margin:10px auto 0; padding:0 14px; }
+    .scan-top-in { display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:12px; border:2px solid; box-shadow:var(--shadow-md); background:#fff; animation:slideUp .18s ease; }
+    .scan-top.known   .scan-top-in { border-color:var(--green); background:#ecfdf5; }
+    .scan-top.unknown .scan-top-in { border-color:#fbbf24; background:#fffbeb; }
+    .scan-top-ico { font-size:1.4rem; line-height:1.2; }
+    .scan-top-body { flex:1; min-width:0; }
+    .scan-top-title { font-weight:800; font-size:.98rem; }
+    .scan-top-code { font-family:ui-monospace,Menlo,monospace; font-size:.75rem; color:var(--muted); direction:ltr; unicode-bidi:isolate; }
+    .scan-top-locs { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+    .loc-pill { background:#fff; border:1.5px solid var(--border); border-radius:999px; padding:2px 9px; font-size:.8rem; font-weight:700; }
+    .loc-pill b { color:var(--p); }
+    .scan-top-x { background:none; border:none; font-size:1rem; cursor:pointer; color:var(--muted); padding:2px 4px; }
+    .find-locs { display:flex; flex-direction:column; gap:6px; margin:10px 0; }
+    .find-loc { display:flex; justify-content:space-between; align-items:center; padding:9px 12px; border-radius:10px; background:var(--bg); font-weight:700; }
+    .find-loc b { font-size:1.1rem; color:var(--p); }
+    .scan-result.find { border-color:var(--p); }
+    .mode-btn { padding:12px 4px; border-radius:var(--r); border:2px solid var(--border); background:#fff; font-size:1.15rem; font-weight:800; font-family:inherit; cursor:pointer; color:var(--muted); display:flex; flex-direction:column; align-items:center; gap:2px; transition:all .15s; box-shadow:var(--shadow); }
     .mode-btn small { font-size:.72rem; font-weight:600; opacity:.85; }
     .mode-btn:active { transform:scale(.97); }
     .mode-btn.add.active    { background:var(--green); border-color:var(--green); color:#fff; box-shadow:0 4px 14px rgba(5,150,105,.35); }
@@ -328,6 +347,10 @@
     .ask-amt.sel { border-color:var(--green); background:var(--green-bg); color:var(--green); box-shadow:0 0 0 3px rgba(5,150,105,.18); }
     .ask-remove .ask-amt.sel { border-color:var(--red); background:var(--red-bg); color:var(--red); box-shadow:0 0 0 3px rgba(220,38,38,.18); }
     .ask-amt.other { font-size:.9rem; color:var(--muted); }
+    .ask-save { width:100%; margin-top:14px; padding:16px; border:none; border-radius:14px; font-family:inherit; font-size:1.1rem; font-weight:800; color:#fff; background:var(--green); cursor:pointer; box-shadow:0 4px 14px rgba(5,150,105,.35); }
+    .ask-remove .ask-save { background:var(--red); box-shadow:0 4px 14px rgba(220,38,38,.35); }
+    .ask-save:active { transform:scale(.98); }
+    .ask-save.nofridge { opacity:.55; }
     .ask-amt:disabled { opacity:.3; cursor:not-allowed; }
     .shake { animation:shake .35s; }
     @keyframes shake { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-6px); } 75% { transform:translateX(6px); } }
@@ -376,6 +399,8 @@
   <button id="nav-dashboard" class="nav-btn"        onclick="showView('dashboard')">📊 דשבורד</button>
 </nav>
 
+<div id="scanTop" class="scan-top" hidden></div>
+
 <main>
 
   <div id="configBanner" class="banner banner-warn" hidden>
@@ -407,6 +432,7 @@
     <div class="scan-mode-toggle">
       <button id="modeAdd"    class="mode-btn add"    onclick="setScanMode('add')">➕ הכנסה<small>מוסיף למקרר</small></button>
       <button id="modeRemove" class="mode-btn remove" onclick="setScanMode('remove')">➖ הוצאה<small>מוריד מהמקרר</small></button>
+      <button id="modeFind"   class="mode-btn find"   onclick="setScanMode('find')">🔍 איפה?<small>מראה איפה המוצר</small></button>
     </div>
     <div class="scan-panel" id="scanControls"></div>
     <div id="scanReady" class="scan-ready add">
@@ -773,6 +799,7 @@ function updateStats() {
   if (lowCount > 0) { sl.textContent = `⚠️ ${lowCount} מלאי נמוך`; sl.hidden = false; } else sl.hidden = true;
   if (ordCount > 0) { so.textContent = `📋 ${ordCount} להזמנה`;    so.hidden = false; } else so.hidden = true;
   if (hasVal)       { sv.textContent = `💰 ₪${Math.round(totalVal).toLocaleString()}`; sv.hidden = false; } else sv.hidden = true;
+  renderScanTop();
 }
 
 function showView(name) {
@@ -1467,7 +1494,9 @@ async function saveProduct() {
     barcodes:    [...editBarcodes],
   };
   // Barcodes are unique: if one was moved here from another product, take it off that product.
-  const stealFrom = products.filter(o => o.id !== editId && (o.barcodes||[]).some(b => data.barcodes.includes(b)));
+  const sameCode  = (a, b) => codeVariants(String(a)).includes(String(b));
+  const isMine    = b => data.barcodes.some(m => sameCode(m, b));
+  const stealFrom = products.filter(o => o.id !== editId && (o.barcodes||[]).some(isMine));
   const createHook = pendingCreateHook;
   let created = null;
   const btn = document.getElementById('saveBtn');
@@ -1486,7 +1515,7 @@ async function saveProduct() {
       toast('מוצר נוסף ✅', 'success');
     }
     stealFrom.forEach(o => {
-      o.barcodes = (o.barcodes||[]).filter(b => !data.barcodes.includes(b));
+      o.barcodes = (o.barcodes||[]).filter(b => !isMine(b));
       persistProduct(o, ['barcodes']);
     });
     closeModal(); saveToCache(); updateStats(); buildSearchFilterBar();
@@ -1754,7 +1783,7 @@ const ALL_FRIDGES = [
   ...Array.from({length:5},  (_,i) => `warehouse_${i+1}`),
 ];
 
-let scanMode   = 'add';   // 'add' | 'remove'
+let scanMode   = 'add';   // 'add' | 'remove' | 'find'
 let scanFridge = '';
 let scanStep   = 1;
 let scanSound  = true;
@@ -1762,7 +1791,7 @@ let scanAsk    = true;    // true = popup asks fridge + amount after each scan; 
 let askLastFridge = '';   // last fridge chosen in the popup, used as a smart default
 try {
   const s = JSON.parse(localStorage.getItem(LS_SCAN) || '{}');
-  if (s.mode === 'add' || s.mode === 'remove') scanMode = s.mode;
+  if (['add','remove','find'].includes(s.mode)) scanMode = s.mode;
   if (ALL_FRIDGES.includes(s.fridge)) scanFridge = s.fridge;
   if (STEP_OPTIONS.includes(s.step)) scanStep = s.step;
   if (typeof s.sound === 'boolean') scanSound = s.sound;
@@ -2012,6 +2041,7 @@ function routeScan(raw) {
   const lc = document.getElementById('scanLastCode');
   if (lc) lc.textContent = '🏷️ ' + code;
   siPrev = '';
+  showScanTop(code);
   if (!document.getElementById('productModal').hidden) { addEditBarcode(code); return; }
   if (!document.getElementById('linkModal').hidden) {
     beep('error'); toast('קודם סיים לשייך את הברקוד הנוכחי', 'error'); return;
@@ -2022,7 +2052,9 @@ function routeScan(raw) {
     if (!confirmAsk(askState.amt)) return;                     // other product = save current, move on
   }
   if (!document.getElementById('orderModal').hidden || !document.getElementById('receiveModal').hidden ||
-      !document.getElementById('dupModal').hidden) return;
+      !document.getElementById('dupModal').hidden) {
+    beep('error'); toast('סגור את החלון הפתוח כדי לסרוק', 'error'); return;
+  }
 
   if (currentView === 'scan') { processScan(code); return; }
 
@@ -2050,6 +2082,12 @@ function processScan(code) {
   scanKnown(p);
 }
 function scanKnown(p) {
+  if (scanMode === 'find') {
+    beep('add'); flashReady(true);
+    scanLast = { type:'find', pid:p.id };
+    renderScanResult();
+    return;
+  }
   if (!scanAsk) { doScanAction(p, scanFridge, scanMode); return; }
   if (scanMode === 'remove' && totalQty(p) <= 0) {
     beep('error'); flashReady(false);
@@ -2141,7 +2179,11 @@ function setScanMode(m)  { scanMode = m; saveScanSettings(); renderScanView(); }
 function setScanFridge(l){ scanFridge = l; saveScanSettings(); if (scanLast?.type === 'noFridge') scanLast = null; renderScanView(); }
 function setScanStep(n)  { scanStep = n; saveScanSettings(); renderScanControls(); renderScanReady(); }
 function toggleScanSound() { scanSound = !scanSound; saveScanSettings(); unlockAudio(); renderScanControls(); if (scanSound) beep('add'); }
-function goScan(loc) { if (loc) { scanFridge = loc; scanAsk = false; saveScanSettings(); } showView('scan'); }
+let askPinned = '';  // fridge chosen via "scan here" — pre-picked in the popup
+function goScan(loc) {
+  if (loc) { scanFridge = loc; askPinned = loc; askLastFridge = loc; saveScanSettings(); }
+  showView('scan');
+}
 function setScanAsk(v) { scanAsk = v; saveScanSettings(); renderScanView(); }
 
 // ── "Ask every time" popup: which fridge + how much ──
@@ -2151,6 +2193,9 @@ let askState = null; // {pid, loc, amt}
 function askDefaultFridge(p) {
   const locs = Object.entries(getLocations(p)).filter(([,v]) => v > 0);
   const hasLast = askLastFridge && locs.some(([k]) => k === askLastFridge);
+  if (askPinned) {
+    if (scanMode === 'add' || locs.some(([k]) => k === askPinned)) return askPinned;
+  }
   if (scanMode === 'remove') {
     if (locs.length === 1) return locs[0][0];
     return hasLast ? askLastFridge : '';      // several fridges: make a deliberate choice
@@ -2175,6 +2220,7 @@ function askBackdropClick(e) { if (e.target.id === 'askModal') closeAsk(); }
 function askPickFridge(loc) {
   if (!askState) return;
   askState.loc = loc;
+  if (askPinned && loc !== askPinned) askPinned = '';  // user moved on to other fridges
   if (scanMode === 'remove') askState.amt = Math.min(askState.amt, askAvail());
   renderAsk();
 }
@@ -2186,13 +2232,21 @@ function askBump() {
   beep(scanMode === 'add' ? 'add' : 'remove');
   renderAsk();
 }
+function askStateAmt() { return askState ? askState.amt : 0; }
+function askPickAmt(n) {
+  if (!askState) return;
+  askState.amt = n;
+  renderAsk();
+}
 function askOther() {
   if (!askState) return;
   const v = prompt('כמות:', askState.amt);
   if (v === null) return;
   const n = r2(parseFloat(v));
   if (!(n > 0)) { toast('כמות לא תקינה', 'error'); return; }
-  confirmAsk(n);
+  if (scanMode === 'remove' && n > askAvail()) { beep('error'); toast(`יש רק ${fmtQ(askAvail())} במקרר הזה`, 'error'); return; }
+  askState.amt = n;
+  renderAsk();
 }
 // Saves the popup. Returns false if it can't (no fridge chosen yet).
 function confirmAsk(amt) {
@@ -2242,18 +2296,23 @@ function renderAsk() {
       <div class="fr-row"><span class="fr-row-label">🏪 חנות</span><div class="fr-btns">${ALL_FRIDGES.filter(l => l.startsWith('store_')).map(fbtn).join('')}</div></div>
       <div class="fr-row"><span class="fr-row-label">🏭 מחסן</span><div class="fr-btns">${ALL_FRIDGES.filter(l => l.startsWith('warehouse_')).map(fbtn).join('')}</div></div>
     </div>
-    <div class="ask-label">🔢 כמה ${unit}? <span style="font-weight:500">(לחיצה שומרת)</span></div>
+    <div class="ask-label">🔢 כמה ${unit}?</div>
     <div class="ask-amts">
-      ${amts.map(n => `<button class="ask-amt${n === askState.amt ? ' sel' : ''}" ${!add && n > avail ? 'disabled' : ''} onclick="confirmAsk(${n})">${fmtQ(n)}</button>`).join('')}
+      ${amts.map(n => `<button class="ask-amt${n === askState.amt ? ' sel' : ''}" ${!add && n > avail ? 'disabled' : ''} onclick="askPickAmt(${n})">${fmtQ(n)}</button>`).join('')}
       <button class="ask-amt other" onclick="askOther()">אחר…</button>
     </div>
-    <p class="field-hint" style="margin-top:10px;text-align:center">סריקה חוזרת של אותו מוצר = +1 · סריקת מוצר אחר שומרת (${fmtQ(askState.amt)}) וממשיכה</p>`;
+    <button class="ask-save${askState.loc ? '' : ' nofridge'}" id="askSaveBtn" onclick="confirmAsk(askStateAmt())">
+      💾 שמור · <bdi dir="ltr">${add ? '+' : '−'}${fmtQ(askState.amt)}</bdi> ${unit}${askState.loc ? ` ${add ? 'ל' : 'מ'}${esc(locLabel(askState.loc,''))}` : ''}
+    </button>
+    <p class="field-hint" style="margin-top:8px;text-align:center">סריקה חוזרת של אותו מוצר = +1 · סריקת מוצר אחר שומרת וממשיכה</p>`;
 }
 
 // ── Scan rendering ──
 function renderScanView() {
   document.getElementById('modeAdd').classList.toggle('active', scanMode === 'add');
   document.getElementById('modeRemove').classList.toggle('active', scanMode === 'remove');
+  document.getElementById('modeFind').classList.toggle('active', scanMode === 'find');
+  if ((scanMode === 'find') !== (scanLast?.type === 'find')) scanLast = null;
   renderScanControls(); renderScanReady(); renderScanResult(); renderScanSession();
 }
 function renderScanControls() {
@@ -2266,6 +2325,13 @@ function renderScanControls() {
       <button class="${scanAsk ? 'active' : ''}" onclick="setScanAsk(true)">❓ לשאול כל פעם<small>מקרר וכמות אחרי כל סריקה</small></button>
       <button class="${!scanAsk ? 'active' : ''}" onclick="setScanAsk(false)">⚡ מהיר<small>מקרר וכמות קבועים</small></button>
     </div>`;
+  if (scanMode === 'find') {
+    document.getElementById('scanControls').innerHTML = `
+      <div class="scan-panel-label" style="margin:0"><span>🔍 סרוק מוצר כדי לראות באילו מקררים הוא נמצא — המלאי לא משתנה</span>
+        <button class="sound-btn" onclick="toggleScanSound()" title="צליל">${scanSound ? '🔊' : '🔇'}</button>
+      </div>`;
+    return;
+  }
   if (scanAsk) {
     document.getElementById('scanControls').innerHTML = toggle + `
       <div class="scan-panel-label" style="margin:10px 0 0"><span></span>
@@ -2285,8 +2351,13 @@ function renderScanControls() {
 }
 function renderScanReady() {
   const el = document.getElementById('scanReady');
-  el.classList.remove('add','remove','nofridge');
+  el.classList.remove('add','remove','nofridge','find');
   const txt = document.getElementById('scanReadyText');
+  if (scanMode === 'find') {
+    el.classList.add('find');
+    txt.innerHTML = `🔍 סרוק מוצר <b>כדי לראות איפה הוא</b><small>מראה את כל המקררים והכמויות</small>`;
+    return;
+  }
   if (scanAsk) {
     el.classList.add(scanMode);
     txt.innerHTML = scanMode === 'add'
@@ -2310,6 +2381,54 @@ function otherLocsHtml(p, exceptLoc) {
   if (!others.length) return '';
   return `<div class="sr-note">📍 גם ב: ${others.map(([k,v]) => `${esc(locLabel(k,''))} (${fmtQ(v)})`).join(' · ')}</div>`;
 }
+function sortedLocs(p) {
+  return Object.entries(getLocations(p)).filter(([,v]) => v > 0)
+    .sort((a,b) => ALL_FRIDGES.indexOf(a[0]) - ALL_FRIDGES.indexOf(b[0]));
+}
+function findCardHtml(p) {
+  const unit = unitLabel(p.unit);
+  const locs = sortedLocs(p);
+  const low  = isProductLow(p);
+  return `
+    <div class="card-top"><span class="sr-name">${esc(p.name)}</span>${vchip(p.vendor)}</div>
+    ${locs.length
+      ? `<div class="find-locs">${locs.map(([k,v]) => `<div class="find-loc"><span>📍 ${esc(locLabel(k,''))}</span><b>${fmtQ(v)} ${unit}</b></div>`).join('')}</div>`
+      : `<div class="sr-note warn" style="margin:10px 0">❌ המוצר קיים במערכת אבל אין ממנו מלאי באף מקרר</div>`}
+    <div class="sr-flow"><b>סה״כ במלאי: ${fmtQ(totalQty(p))} ${unit}</b>${(p.upcomingQty??0) > 0 ? ` · 📋 בהזמנה: ${p.upcomingQty}` : ''}</div>
+    ${low ? `<div class="sr-note warn"><span>⚠️ מלאי נמוך (מינימום ${p.minQty ?? 1})</span>
+      <button class="btn btn-sm btn-success" onclick="scanOrder('${p.id}')">📋 ${(p.upcomingQty??0) > 0 ? 'עדכן הזמנה' : 'הוסף להזמנה'}</button></div>` : ''}
+    <div class="sr-actions"><button class="btn btn-sm btn-outline" onclick="openEditModal('${p.id}')">✏️ ערוך מוצר</button></div>`;
+}
+
+// ── Top bar: what was just scanned and whether it's in the DB ──
+var scanTopCode = '';
+function showScanTop(code) { scanTopCode = code; renderScanTop(); }
+function hideScanTop()     { scanTopCode = ''; renderScanTop(); }
+function renderScanTop() {
+  const bar = document.getElementById('scanTop');
+  if (!bar) return;
+  if (!scanTopCode) { bar.hidden = true; bar.innerHTML = ''; return; }
+  const p = findByBarcode(scanTopCode);
+  bar.hidden = false;
+  bar.className = 'scan-top ' + (p ? 'known' : 'unknown');
+  const x = `<button class="scan-top-x" onclick="hideScanTop()" title="סגור">✕</button>`;
+  if (!p) {
+    bar.innerHTML = `<div class="scan-top-in"><span class="scan-top-ico">❓</span><div class="scan-top-body">
+      <div class="scan-top-title">נסרק: ברקוד לא קיים במערכת</div>
+      <div class="scan-top-code">🏷️ ${esc(scanTopCode)}</div></div>${x}</div>`;
+    return;
+  }
+  const unit = unitLabel(p.unit);
+  const locs = sortedLocs(p);
+  bar.innerHTML = `<div class="scan-top-in"><span class="scan-top-ico">✅</span><div class="scan-top-body">
+    <div class="scan-top-title">נסרק: ${esc(p.name)} <span style="font-weight:600;color:var(--muted);font-size:.82rem">· סה״כ ${fmtQ(totalQty(p))} ${unit}</span></div>
+    <div class="scan-top-code">🏷️ ${esc(scanTopCode)}</div>
+    <div class="scan-top-locs">${locs.length
+      ? locs.map(([k,v]) => `<span class="loc-pill">📍 ${esc(locLabel(k,''))}: <b>${fmtQ(v)}</b></span>`).join('')
+      : `<span class="loc-pill" style="color:var(--red)">אין מלאי באף מקרר</span>`}</div>
+  </div>${x}</div>`;
+}
+
 function renderScanResult() {
   const box = document.getElementById('scanResult');
   if (!box) return;
@@ -2317,6 +2436,13 @@ function renderScanResult() {
 
   if (scanLast.type === 'noFridge') {
     box.innerHTML = `<div class="scan-result err"><b>⚠️ לא נבחר מקרר</b><div class="sr-note">בחר מקרר למעלה וסרוק שוב.</div></div>`;
+    return;
+  }
+
+  if (scanLast.type === 'find') {
+    const p = products.find(x => x.id === scanLast.pid);
+    if (!p) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div class="scan-result find">${findCardHtml(p)}</div>`;
     return;
   }
 
@@ -2463,7 +2589,7 @@ function linkToProduct(id) {
   saveToCache();
   closeLinkModal();
   toast(`🏷️ הברקוד שויך ל"${p.name}"`, 'success');
-  rerenderCard(p.id);
+  rerenderCard(p.id); renderScanTop();
   if (ctx === 'scan' && currentView === 'scan') scanKnown(p);
   else routeScan(code);
 }
@@ -2504,9 +2630,10 @@ function renderBcList() {
 function addEditBarcode(raw) {
   const code = normCode(raw);
   if (!code) return;
-  if (editBarcodes.includes(code)) { beep('error'); toast('הברקוד כבר ברשימה'); return; }
+  const vs = codeVariants(code);
+  if (editBarcodes.some(b => vs.includes(String(b)))) { beep('error'); toast('הברקוד כבר ברשימה'); return; }
   const editId = document.getElementById('fId').value;
-  const owner  = products.find(o => o.id !== editId && (o.barcodes||[]).includes(code));
+  const owner  = products.find(o => o.id !== editId && (o.barcodes||[]).some(b => vs.includes(String(b))));
   if (owner && !confirm(`הברקוד ${code} כבר משויך ל"${owner.name}".\nלהעביר אותו למוצר הזה?`)) return;
   editBarcodes.push(code);
   renderBcList();
@@ -2560,7 +2687,8 @@ Object.assign(window, {
   adjustScanEntry, undoScanEntry, clearScanSession, scanRemoveFrom, scanOrder,
   linkToProduct, linkCreateNew, closeLinkModal, linkBackdropClick, renderLinkList,
   addBarcodeFromInput, removeEditBarcode, clearScanInput,
-  setScanAsk, askPickFridge, confirmAsk, askOther, closeAsk, askBackdropClick,
+  hideScanTop,
+  setScanAsk, askPickFridge, askPickAmt, askStateAmt, confirmAsk, askOther, closeAsk, askBackdropClick,
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────
@@ -2603,6 +2731,8 @@ if ('serviceWorker' in navigator) {
 let _py = 0;
 document.addEventListener('touchstart', e => { _py = e.touches[0].pageY; }, { passive: true });
 document.addEventListener('touchmove', e => {
+  const sc = e.target.closest && e.target.closest('.modal, .receive-sheet, .link-list, .receive-list');
+  if (sc) return;   // let popups and lists scroll normally
   if (window.scrollY === 0 && e.touches[0].pageY > _py) e.preventDefault();
 }, { passive: false });
 </script>
